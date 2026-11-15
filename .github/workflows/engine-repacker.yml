@@ -15,20 +15,87 @@ jobs:
         id: vars
         run: echo "TIMESTAMP=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_ENV
 
+      - name: Install Optimization & Compression Tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq p7zip-full llvm binutils xz-utils
+
       - name: Download, Strip, and Repack (Windows)
         run: |
-          wget https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip -O win.zip
-          unzip -j win.zip "*/bin/ffmpeg.exe" "*/bin/ffprobe.exe" -d win-out
+          mkdir -p win-out
+          mkdir -p win-ffmpeg-raw
+
+          # 1. Fetch FFmpeg Master GPL (yt-dlp build)
+          wget -q https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip -O win-ffmpeg.zip
+          unzip -j -q win-ffmpeg.zip "*/bin/ffmpeg.exe" "*/bin/ffprobe.exe" -d win-ffmpeg-raw
+
+          # 2. Fetch latest yt-dlp Nightly executable
+          wget -q https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp.exe -O win-out/yt-dlp.exe
+
+          # 3. Fetch standalone QuickJS runtime
+          wget -q https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-windows-x86_64.exe -O win-out/qjs.exe
+
+          # 4. Strip debug symbols & unneeded sections from PE binaries
+          llvm-strip --strip-all win-ffmpeg-raw/ffmpeg.exe || true
+          llvm-strip --strip-all win-ffmpeg-raw/ffprobe.exe || true
+
+          cp win-ffmpeg-raw/ffmpeg.exe win-ffmpeg-raw/ffprobe.exe win-out/
+
+          # 5. Pack standalone FFmpeg lite zip with maximum 7z Deflate compression (100% zip compatible)
+          cd win-ffmpeg-raw
+          7z a -tzip -mx=9 -mfb=258 -mpass=15 -mmt=on ../ffmpeg-win64-lite.zip ffmpeg.exe ffprobe.exe
+          cd ..
+
+          # 6. Pack unified all-in-one engine bundle
           cd win-out
-          zip -9 ../ffmpeg-win64-lite.zip ffmpeg.exe ffprobe.exe
+          7z a -tzip -mx=9 -mfb=258 -mpass=15 -mmt=on ../vivestream-engines-win64.zip ffmpeg.exe ffprobe.exe yt-dlp.exe qjs.exe
           cd ..
 
       - name: Download, Strip, and Repack (Linux)
         run: |
-          wget https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz -O lin.tar.xz
-          tar -xJf lin.tar.xz --wildcards "*/bin/ffmpeg" "*/bin/ffprobe"
-          mv ffmpeg-master-latest-linux64-gpl/bin/* ./
-          tar -cJf ffmpeg-linux64-lite.tar.xz ffmpeg ffprobe
+          mkdir -p lin-out
+          mkdir -p lin-ffmpeg-raw
+
+          # 1. Fetch FFmpeg Master GPL (yt-dlp build)
+          wget -q https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz -O lin-ffmpeg.tar.xz
+          tar -xJf lin-ffmpeg.tar.xz --wildcards "*/bin/ffmpeg" "*/bin/ffprobe"
+          mv ffmpeg-master-latest-linux64-gpl/bin/* lin-ffmpeg-raw/
+          rm -rf ffmpeg-master-latest-linux64-gpl
+
+          # 2. Fetch latest yt-dlp Nightly
+          wget -q https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp -O lin-out/yt-dlp
+          chmod +x lin-out/yt-dlp
+
+          # 3. Fetch standalone QuickJS runtime
+          wget -q https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-linux-x86_64 -O lin-out/qjs
+          chmod +x lin-out/qjs
+
+          # 4. Strip ELF binaries
+          strip --strip-all lin-ffmpeg-raw/ffmpeg || true
+          strip --strip-all lin-ffmpeg-raw/ffprobe || true
+
+          cp lin-ffmpeg-raw/ffmpeg lin-ffmpeg-raw/ffprobe lin-out/
+
+          # 5. Pack standalone FFmpeg lite tar.xz with extreme LZMA2 preset
+          cd lin-ffmpeg-raw
+          XZ_OPT="-9e -T0" tar -cJf ../ffmpeg-linux64-lite.tar.xz ffmpeg ffprobe
+          cd ..
+
+          # 6. Pack unified all-in-one engine bundle
+          cd lin-out
+          XZ_OPT="-9e -T0" tar -cJf ../vivestream-engines-linux64.tar.xz ffmpeg ffprobe yt-dlp qjs
+          cd ..
+
+      - name: Generate Checksums
+        run: |
+          sha256sum ffmpeg-win64-lite.zip \
+                    ffmpeg-linux64-lite.tar.xz \
+                    vivestream-engines-win64.zip \
+                    vivestream-engines-linux64.tar.xz \
+                    win-out/yt-dlp.exe \
+                    win-out/qjs.exe \
+                    lin-out/yt-dlp \
+                    lin-out/qjs > SHA256SUMS
 
       - name: Publish Repacked Engines
         uses: softprops/action-gh-release@v2
@@ -39,3 +106,6 @@ jobs:
           files: |
             ffmpeg-win64-lite.zip
             ffmpeg-linux64-lite.tar.xz
+            vivestream-engines-win64.zip
+            vivestream-engines-linux64.tar.xz
+            SHA256SUMS
