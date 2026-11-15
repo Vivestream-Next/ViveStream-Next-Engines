@@ -35,9 +35,14 @@ jobs:
           # 3. Fetch standalone QuickJS runtime
           wget -q https://github.com/quickjs-ng/quickjs/releases/latest/download/qjs-windows-x86_64.exe -O win-out/qjs.exe
 
+          # 3b. Fetch Whisper Vulkan GPU Runtime (whisper-cli & ggml-vulkan shaders)
+          wget -q https://github.com/DomoticX/whisper.cpp-windows-vulkan/releases/download/v1.0/whisper.cpp-windows-vulkan.zip -O win-whisper-vulkan.zip
+          unzip -j -q win-whisper-vulkan.zip "whisper-cli.exe" "ggml-vulkan.dll" "ggml-base.dll" "ggml-cpu.dll" "ggml.dll" "whisper.dll" -d win-out/
+
           # 4. Strip debug symbols & unneeded sections from PE binaries
           llvm-strip --strip-all win-ffmpeg-raw/ffmpeg.exe || true
           llvm-strip --strip-all win-ffmpeg-raw/ffprobe.exe || true
+          llvm-strip --strip-all win-out/whisper-cli.exe || true
 
           cp win-ffmpeg-raw/ffmpeg.exe win-ffmpeg-raw/ffprobe.exe win-out/
 
@@ -46,9 +51,12 @@ jobs:
           7z a -tzip -mx=9 -mfb=258 -mpass=15 -mmt=on ../ffmpeg-win64-lite.zip ffmpeg.exe ffprobe.exe
           cd ..
 
-          # 6. Pack unified all-in-one engine bundle
+          # 5b. Pack standalone Whisper Vulkan GPU zip
           cd win-out
-          7z a -tzip -mx=9 -mfb=258 -mpass=15 -mmt=on ../vivestream-engines-win64.zip ffmpeg.exe ffprobe.exe yt-dlp.exe qjs.exe
+          7z a -tzip -mx=9 -mfb=258 -mpass=15 -mmt=on ../whisper-vulkan-win64.zip whisper-cli.exe ggml-vulkan.dll ggml-base.dll ggml-cpu.dll ggml.dll whisper.dll
+
+          # 6. Pack unified all-in-one engine bundle (100% standard zip compatible)
+          7z a -tzip -mx=9 -mfb=258 -mpass=15 -mmt=on ../vivestream-engines-win64.zip ffmpeg.exe ffprobe.exe yt-dlp.exe qjs.exe whisper-cli.exe ggml-vulkan.dll ggml-base.dll ggml-cpu.dll ggml.dll whisper.dll
           cd ..
 
       - name: Download, Strip, and Repack (Linux)
@@ -91,9 +99,11 @@ jobs:
           sha256sum ffmpeg-win64-lite.zip \
                     ffmpeg-linux64-lite.tar.xz \
                     vivestream-engines-win64.zip \
+                    whisper-vulkan-win64.zip \
                     vivestream-engines-linux64.tar.xz \
                     win-out/yt-dlp.exe \
                     win-out/qjs.exe \
+                    win-out/whisper-cli.exe \
                     lin-out/yt-dlp \
                     lin-out/qjs > SHA256SUMS
 
@@ -107,5 +117,6 @@ jobs:
             ffmpeg-win64-lite.zip
             ffmpeg-linux64-lite.tar.xz
             vivestream-engines-win64.zip
+            whisper-vulkan-win64.zip
             vivestream-engines-linux64.tar.xz
             SHA256SUMS
